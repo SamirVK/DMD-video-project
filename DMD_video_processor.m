@@ -5,10 +5,11 @@
 clear all; close all; clc
 
 %% Initialize variables and read in color frames from vidObj
-frames = 379;
-height = 136;
-width = 240;
-vidObj = VideoReader('monte_carlo_240x136.mp4');
+
+vidObj = VideoReader('monte_carlo_low.mp4');%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+frames = vidObj.NumFrames;
+height = vidObj.height;
+width = vidObj.width;
 colorVidFrames = read(vidObj, [1 frames]);
 
 %% Convert colour frames to greyscale
@@ -19,30 +20,48 @@ end
 clear colorVidFrames
 whos gFrames
 
-%% Print a grayscale frame
-% toPrint = reshape(gFrames(:,1),[height,width]); 
-% figure
-% imshow(toPrint)
+%% Print a grayscale frame from the gFrames matrix
+toPrint = reshape(gFrames(:,1),[height,width]); 
+figure
+imshow(toPrint)
 
-%% Create X and Y matrices
-X = gFrames(:,1:end-1);
-X = double(X);
-Y = gFrames(:,2:end);
-Y = double(Y);
+%% GENERALIZED Low-rank SVD (CHOOSE to be less than or equal to 95)
+% We want to find the DMD matrix A that satisfies the argmin problem. 
+% This involves computing the Moore-Penrose pseudoinverse X_dagger and 
+% multiplying on the left by the shifted matrix Y whose columns are the 
+% next time step from those in the X matrix.
 
-%% Low-rank SVD
-%[U,S,V] = svd(X,'econ');
-%X_160 = U(:,1:160)*S(1:160,1:160)*V(:,1:160)';
-
-%% Get the DMD matrix
+s = 90; % Desired energy level%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+gFrames = double(gFrames);
+% X = gFrames(:,1:end-1);
+% Y = gFrames(:,2:end);
+% X = double(X);
+% Y = double(Y);
+[U,S,V] = svd(gFrames,'econ');
+singular_values = diag(S);
+total_energy = sum(diag(S));
+cum_energy = 0;
+i = 1;
+while 1
+    cum_energy = cum_energy + singular_values(i);
+    percent_energy = cum_energy / total_energy * 100;
+    if percent_energy >= s
+        break
+    end
+    i = i + 1;
+end
+gFrames_s = U(:,1:i)*S(1:i,1:i)*V(:,1:i)';
+gFrames_lowrank = U(:,1:i)'*gFrames_s;
+X = gFrames_lowrank(:,1:end-1);
+Y = gFrames_lowrank(:,2:end);
 X_dagger = pinv(X);
-A = Y*X_dagger;
+A = Y * X_dagger;
 
 %% Get the e'values and e'vectors of A
-%[eV, D] = eig(A);
+[eV, D] = eig(A);
 
 %% Build the DMD video matrix
-Z = zeros(height*width,frames);
+Z = zeros(i,frames);
 Z(:,1) = X(:,1);
 
 %% Forecast using DMD matrix 
@@ -54,11 +73,15 @@ end
 norm(Y(:,end) - Z(:,end))
 
 %% make a movie from the DMD video matrix frames:
-toPrint = reshape(Z,[height,width,379]);
+% Recover original dimensionality
+movie = U(:,1:i) * Z;
+
+toPrint = reshape(movie,[height,width,379]);
 figure
 f = 1;
-while f <= 379
+while f <= frames
     imshow(mat2gray(toPrint(:,:,f),[0,255]))
-    pause(1/60);
-    f=f+1;
+    pause(1/120);
+    f = f + 1;
 end
+
