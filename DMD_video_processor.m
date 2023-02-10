@@ -1,6 +1,7 @@
 % -------------------------------------------------------------------------
 % This script imports a video file as a 3D matrix and 
-% calculates the associated DMD matrix from the SVD and pseudo-inverse.
+% calculates the associated DMD matrix from a low or full rank SVD 
+% approximation and pseudo-inverse.
 % Works on .mp4 files
 % -------------------------------------------------------------------------
 % Author: Samir Karam
@@ -9,7 +10,7 @@ clear all; close all; clc
 
 %% Initialize variables and read in color frames from vidObj
 
-vidObj = VideoReader('ski_drop_low.mp4');%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+vidObj = VideoReader('monte_carlo_low.mp4');%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 frames = vidObj.NumFrames;
 height = vidObj.height;
 width = vidObj.width;
@@ -18,7 +19,7 @@ colorVidFrames = read(vidObj, [1 frames]);
 %% Convert colour frames to greyscale
 for f = 1:frames
     J = rgb2gray(colorVidFrames(:,:,:,f)); 
-    gFrames(:,f) = J(:);                     
+    gFrames(:,f) = J(:);
 end
 clear colorVidFrames
 whos gFrames
@@ -36,10 +37,10 @@ gFrames = double(gFrames);
 
 [U,S,V] = svd(gFrames,'econ');
 singular_values = diag(S);
-total_energy = sum(diag(S));
+total_energy = sum(singular_values);
 cum_energy = 0;
 i = 1;
-while i < 454
+while i < frames
     cum_energy = cum_energy + singular_values(i);
     percent_energy = cum_energy / total_energy * 100;
     if percent_energy >= s
@@ -69,15 +70,28 @@ xcos = cos(th);
 ysin = sin(th);
 
 figure(1)
+subplot(1,2,1)
 plot(zeros(length(line),1),line,'k','Linewidth',2) % imaginary axis
 hold on 
 plot(line,zeros(length(line),1),'k','Linewidth',2) % real axis
 plot(xcos,ysin,'k--','LineWidth',2) % unit circle
-plot(mu,'.','Color',[1 69/255 79/255],'Markersize',30)
+plot(mu,'.','Color',[1 69/255 79/255],'Markersize',10)
 hold off
 xlabel('Re(\mu)')
 ylabel('Im(\mu)')
 set(gca,'FontSize',16,'Xlim',[-1.2 1.2],'Ylim',[-1.2 1.2])
+ZoomPlot()
+
+subplot(1,2,2)
+plot(zeros(length(line),1),line,'k','Linewidth',2) % imaginary axis
+hold on 
+plot(line,zeros(length(line),1),'k','Linewidth',2) % real axis
+plot(real(omega),imag(omega),'.b','MarkerSize', 10)
+hold off
+xlabel('Re(\omega)')
+ylabel('Im(\omega)')
+set(gca,'FontSize',16,'Xlim',[-1.2 1.2],'Ylim',[-1.2 1.2])
+ZoomPlot()
 
 %% Build the DMD video matrix and forecast
 Z = zeros(i,frames);
@@ -88,14 +102,16 @@ end
 
 %% Construct "low-rank" (background) and "sparse" (foreground) DMD frames
 % Solve the linear system given by the eigenbasis expansion
-c = eVectors \ X(:,1);
+b = eVectors \ X(:,1);
 dt = 1;
+% Compute the continuous-time DMD eigenvalues
 omega = log(mu)/dt;
 
-% Determine the indices of the low-rank modes 
+% Find the low rank modes by putting a 1 in the corresponding entry of 
+% modes_low for those modes that are lower than a given threshold
 modes_low = zeros(i,1);
 for j = 1:i
-    if abs(omega(j)) <= 0.001
+    if abs(omega(j)) <= 0.01
         modes_low(j) = 1;
     end 
 end 
@@ -104,7 +120,7 @@ end
 x = zeros(i,frames);
 for t = 1:frames
     for k = 1:i
-        x(:,t) = x(:,t) + c(k) * eVectors(:, k) * mu(k)^((t-1)/dt);
+        x(:,t) = x(:,t) + b(k) * eVectors(:, k) * mu(k)^((t-1)/dt);
     end 
 end
 
@@ -113,7 +129,7 @@ x_low = zeros(i,frames);
 for t = 1:frames
     for k = 1:i
         if modes_low(k) == 1
-            x_low(:,t) = x_low(:,t) + c(k) * eVectors(:, k) * mu(k)^((t-1)/dt);
+            x_low(:,t) = x_low(:,t) + b(k) * eVectors(:, k) * mu(k)^((t-1)/dt);
         end
     end 
 end
@@ -125,66 +141,63 @@ x_sparse = x - abs(x_low);
 negatives = x_sparse;
 for t = 1:frames
     for j = 1:i
-        if negatives(j,t) >= 0
+        if real(negatives(j,t)) > 0
             negatives(j,t) = 0;
         end
     end
 end
 % Nathan Kutz uses this step to make the problem mathematically rigorous,
-% but somehow the results are better without it.
+% but somehow the results seem better without it.
 % x_low = negatives + abs(x_low);
 
 % Then subtract them from x_sparse
 x_sparse = x_sparse - negatives;
 
-%% Print frames from matrices
+%% Plot of Original Video and DMD video
 
-subplot(3,2,[1 2])
+subplot(1,2,1)
 toPrint = reshape(gFrames,[height,width,frames]);
-imshow(mat2gray(toPrint(:,:,200),[0,255]))
+imshow(mat2gray(toPrint(:,:,24),[0,255]))
 title('Original Video')
 
-subplot(3,2,3)
-snapshot = U(:,1:i) * gFrames_lowrank;
-toPrint = reshape(snapshot,[height,width,frames]);
-imshow(mat2gray(toPrint(:,:,200),[0,255]))
-title('Low Rank Video')
+original = toPrint;
 
-% subplot(3,2,2)
-% snapshot = U(:,1:i) * real((x_low + x_sparse));
-% toPrint = reshape(snapshot,[height,width,frames]);
-% imshow(mat2gray(toPrint(:,:,24),[9.1247,258.7220]))
-% title('x_low + x_sparse')
-
-% subplot(3,2,3)
-% snapshot = U(:,1:i) * Z;
-% toPrint = reshape(snapshot,[height,width,frames]);
-% imshow(mat2gray(toPrint(:,:,24),[9.1247,258.7220]))
-% title('Reconstructed: multiplication with A')
-
-subplot(3,2,4)
+subplot(1,2,2)
 x_real = real(x);
 snapshot = U(:,1:i) * x_real;
 toPrint = reshape(snapshot,[height,width,frames]);
-imshow(mat2gray(toPrint(:,:,200),[0,255]))
+imshow(mat2gray(toPrint(:,:,24),[0,255]))
 title('DMD Reconstruction')
 
-subplot(3,2,5)
+reconstructed = toPrint;
+norm(original(:,:,24)-toPrint(:,:,24))
+
+%% Plot of Low-Rank Video 
+subplot(3,2,3)
+snapshot = U(:,1:i) * gFrames_lowrank;
+toPrint = reshape(snapshot,[height,width,frames]);
+imshow(mat2gray(toPrint(:,:,24),[0,255]))
+title('Low Rank Video')
+
+
+
+%% Plot of foreground and background
+subplot(1,2,1)
 x_low_real = real(x_low);
 snapshot = U(:,1:i) * x_low_real;
 toPrint = reshape(snapshot,[height,width,frames]);
-imshow(mat2gray(toPrint(:,:,200),[0,255]))
+imshow(mat2gray(toPrint(:,:,24),[0,255]))
 title('DMD Background')
 
-subplot(3,2,6)
+subplot(1,2,2)
 x_sparse_real = real(x_sparse);
 snapshot = U(:,1:i) * (x_sparse_real);
+[min,max] = bounds(snapshot, 'all');
 toPrint = reshape(snapshot,[height,width,frames]);
-imshow(mat2gray(toPrint(:,:,200),[-58.5109,58.9142]))
+imshow(mat2gray(toPrint(:,:,24),[min/2,max/2]))
 title('DMD Foreground')
 
 %% Make a movie from the DMD video matrix frames:
-% Recover original dimensionality
 
 % movie = U(:,1:i) * Z;
 % 
