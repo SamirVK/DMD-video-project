@@ -1,8 +1,10 @@
 % -------------------------------------------------------------------------
-% This script imports a video file as a 3D matrix and 
-% calculates the associated DMD matrix from a low or full rank SVD 
-% approximation and pseudo-inverse.
-% Works on .mp4 files
+% This script imports a video file as a 3D matrix, calculates the low rank
+% DMD matrix using a low or full rank SVD approximation, and incorporates
+% a low\high pass filter to decompose the input signal into separate 
+% foreground and background video streams.
+% 
+% Works with .mp4 files
 % -------------------------------------------------------------------------
 % Author: Samir Karam
 
@@ -179,34 +181,32 @@ toPrint = reshape(snapshot,[height,width,frames]);
 imshow(mat2gray(toPrint(:,:,24),[0,255]))
 title('Low Rank Video')
 
-
-
 %% Plot of foreground and background
 subplot(1,2,1)
 x_low_real = real(x_low);
-snapshot = U(:,1:i) * x_low_real;
-toPrint = reshape(snapshot,[height,width,frames]);
+snapshot1 = U(:,1:i) * x_low_real;
+toPrint = reshape(snapshot1,[height,width,frames]);
 imshow(mat2gray(toPrint(:,:,24),[0,255]))
 title('DMD Background')
 
 subplot(1,2,2)
 x_sparse_real = real(x_sparse);
-snapshot = U(:,1:i) * (x_sparse_real);
-[min,max] = bounds(snapshot, 'all');
-toPrint = reshape(snapshot,[height,width,frames]);
+snapshot2 = U(:,1:i) * (x_sparse_real);
+[min,max] = bounds(snapshot2, 'all');
+toPrint = reshape(snapshot2,[height,width,frames]);
 imshow(mat2gray(toPrint(:,:,24),[min/2,max/2]))
 title('DMD Foreground')
 
-%% Make a movie from the DMD video matrix frames:
+%% Make a movie with no background from the DMD video matrix frames:
 
-% movie = U(:,1:i) * Z;
-% 
-% toPrint = reshape(movie,[height,width,frames]);
-% figure(2)
-% f = 1;
-% while f <= frames
-%     imshow(mat2gray(toPrint(:,:,f),[0,255]))
-%     pause(1/120);
-%     f = f + 1;
-% end
+movie = U(:,1:i) * x_sparse_real;
+toPrint = reshape(movie,[height,width,frames]);
+[min,max] = bounds(movie, 'all');
+figure(2)
+f = 1;
+while f <= frames
+    imshow(mat2gray(toPrint(:,:,f),[min/2,max/2]))
+    pause(1/120);
+    f = f + 1;
+end
 
